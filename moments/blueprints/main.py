@@ -10,6 +10,23 @@ from moments.models import Collection, Comment, Follow, Notification, Photo, Tag
 from moments.notifications import push_collect_notification, push_comment_notification
 from moments.utils import flash_errors, redirect_back, rename_image, resize_image, validate_image
 
+
+from azure.cognitiveservices.vision.computervision import ComputerVisionClient
+from azure.cognitiveservices.vision.computervision.models import VisualFeatureTypes
+from msrest.authentication import CognitiveServicesCredentials
+
+import configparser
+
+config = configparser.ConfigParser()
+config.read('secrets.txt')
+
+# Azure Computer Vision API credentials
+AZURE_COMPUTER_VISION_KEY = config['DEFAULT']['KEY']
+AZURE_COMPUTER_VISION_ENDPOINT = config['DEFAULT']['ENDPOINT']
+
+# Create a Computer Vision client
+computervision_client = ComputerVisionClient(AZURE_COMPUTER_VISION_ENDPOINT, CognitiveServicesCredentials(AZURE_COMPUTER_VISION_KEY))
+
 main_bp = Blueprint('main', __name__)
 
 
@@ -131,11 +148,43 @@ def upload():
             return 'Invalid image.', 400
         filename = rename_image(f.filename)
         f.save(current_app.config['MOMENTS_UPLOAD_PATH'] / filename)
-        filename_s = resize_image(f, filename, current_app.config['MOMENTS_PHOTO_SIZES']['small'])
-        filename_m = resize_image(f, filename, current_app.config['MOMENTS_PHOTO_SIZES']['medium'])
-        photo = Photo(
-            filename=filename, filename_s=filename_s, filename_m=filename_m, author=current_user._get_current_object()
-        )
+        
+        # Call Azure Computer Vision API for object detection
+        with open(current_app.config['MOMENTS_UPLOAD_PATH'] / filename, "rb") as image_stream:
+            image_analysis = computervision_client.analyze_image_in_stream(image_stream, visual_features=[VisualFeatureTypes.objects])
+
+        # Load the uploaded image
+        image = open(current_app.config['MOMENTS_UPLOAD_PATH'] / filename, "rb")
+        # Extract detected objects
+        detected_objects = image_analysis.objects
+
+        # Analyze the image and generate a caption
+        analysis = computervision_client.describe_image_in_stream(image, visual_features=[VisualFeatureTypes.description])
+        caption = analysis.captions[0].text
+
+        if detected_objects:
+            # Save detected objects to the photo object
+            photo = Photo(
+                filename=filename,
+                filename_s=resize_image(f, filename, current_app.config['MOMENTS_PHOTO_SIZES']['small']),
+                filename_m=resize_image(f, filename, current_app.config['MOMENTS_PHOTO_SIZES']['medium']),
+                author=current_user._get_current_object(),
+                tags=[Tag(name=obj.object_property) for obj in detected_objects],
+                description=caption,
+            )
+        else:
+            photo = Photo(
+                filename=filename,
+                filename_s=resize_image(f, filename, current_app.config['MOMENTS_PHOTO_SIZES']['small']),
+                filename_m=resize_image(f, filename, current_app.config['MOMENTS_PHOTO_SIZES']['medium']),
+                author=current_user._get_current_object()
+            )
+        
+        # filename_s = resize_image(f, filename, current_app.config['MOMENTS_PHOTO_SIZES']['small'])
+        # filename_m = resize_image(f, filename, current_app.config['MOMENTS_PHOTO_SIZES']['medium'])
+        # photo = Photo(
+        #     filename=filename, filename_s=filename_s, filename_m=filename_m, author=current_user._get_current_object()
+        # )
         db.session.add(photo)
         db.session.commit()
     return render_template('main/upload.html')
