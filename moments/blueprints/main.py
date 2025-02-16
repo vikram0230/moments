@@ -152,33 +152,23 @@ def upload():
         # Call Azure Computer Vision API for object detection
         with open(current_app.config['MOMENTS_UPLOAD_PATH'] / filename, "rb") as image_stream:
             image_analysis = computervision_client.analyze_image_in_stream(image_stream, visual_features=[VisualFeatureTypes.objects])
-
-        # Load the uploaded image
-        image = open(current_app.config['MOMENTS_UPLOAD_PATH'] / filename, "rb")
         # Extract detected objects
         detected_objects = image_analysis.objects
 
+        # Load the uploaded image
+        image = open(current_app.config['MOMENTS_UPLOAD_PATH'] / filename, "rb")
         # Analyze the image and generate a caption
         analysis = computervision_client.describe_image_in_stream(image, visual_features=[VisualFeatureTypes.description])
         caption = analysis.captions[0].text
-
-        if detected_objects:
-            # Save detected objects to the photo object
-            photo = Photo(
-                filename=filename,
-                filename_s=resize_image(f, filename, current_app.config['MOMENTS_PHOTO_SIZES']['small']),
-                filename_m=resize_image(f, filename, current_app.config['MOMENTS_PHOTO_SIZES']['medium']),
-                author=current_user._get_current_object(),
-                tags=[Tag(name=obj.object_property) for obj in detected_objects],
-                description=caption,
-            )
-        else:
-            photo = Photo(
-                filename=filename,
-                filename_s=resize_image(f, filename, current_app.config['MOMENTS_PHOTO_SIZES']['small']),
-                filename_m=resize_image(f, filename, current_app.config['MOMENTS_PHOTO_SIZES']['medium']),
-                author=current_user._get_current_object()
-            )
+        
+        photo = Photo(
+            filename=filename,
+            filename_s=resize_image(f, filename, current_app.config['MOMENTS_PHOTO_SIZES']['small']),
+            filename_m=resize_image(f, filename, current_app.config['MOMENTS_PHOTO_SIZES']['medium']),
+            author=current_user._get_current_object(),
+            tags=[Tag(name=obj.object_property) for obj in detected_objects] if detected_objects else None,
+            description=caption if caption else None,
+        )
         
         # filename_s = resize_image(f, filename, current_app.config['MOMENTS_PHOTO_SIZES']['small'])
         # filename_m = resize_image(f, filename, current_app.config['MOMENTS_PHOTO_SIZES']['medium'])
